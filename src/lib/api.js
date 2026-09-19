@@ -1,24 +1,25 @@
 /**
  * API client.
  *
- * Talks to the backend at /api. If the backend is not reachable, every call
- * falls back to an equivalent in-browser implementation so the app stays
- * demonstrable on its own. The header shows which of the two is live.
+ * Talks to the Next.js backend under /api/ui, which serves the real scheduling
+ * store — surgeons, duty rosters, sleep logs, commitments and cases — in this
+ * app's vocabulary. See lib/ui-adapter.js on the backend for the translation.
  *
- * Contract expected of the backend:
+ * If the backend is not reachable, every call falls back to an equivalent
+ * in-browser implementation so the app stays demonstrable on its own. The
+ * header shows which of the two is live.
  *
  *   GET  /roster
  *        -> { surgeons: Surgeon[], cases: Case[], generatedAt }
- *   POST /assess-fatigue   { surgeonId, at?, horizonHours? }
- *        -> { surgeonId, score, band, drivers[], curve[] }
- *   POST /suggest-assignment { caseId }
- *        -> { caseId, recommendation, current, candidates[], ineligible[] }
- *   POST /sleep-log        { surgeonId, start, end, quality, source }
- *        -> { ok, surgeon }
- *   POST /flag             { surgeonId, reason, severity }
- *        -> { ok, surgeon }
- *   POST /register         { name, specialty, role, chronotype, ... }
- *        -> { ok, surgeon }
+ *   POST /sleep-log   { surgeonId, start, end, quality, source }
+ *   POST /flag        { surgeonId, reason, severity } | { surgeonId, clear }
+ *   POST /register    { name, specialty, role, habitualSleep, recentSleep[] }
+ *   POST /assign      { caseId, surgeonId, reason }
+ *
+ * Assignment recommendations are computed in the browser (lib/assign.js) over
+ * whichever dataset is live. Against the backend that means real duty hours and
+ * real sleep logs, so the recommendation is real either way — it just never
+ * needs a round trip to re-rank when the scheduler drags the horizon.
  *
  * Timestamps may be epoch milliseconds or ISO strings; both are accepted.
  */
@@ -28,8 +29,8 @@ import { assess, curve } from './fatigue.js'
 import { suggestAssignment } from './assign.js'
 import { HOUR } from './time.js'
 
-const BASE = '/api'
-const TIMEOUT_MS = 2500
+const BASE = '/api/ui'
+const TIMEOUT_MS = 4000
 
 let mode = 'unknown' // 'live' | 'mock' | 'unknown'
 const listeners = new Set()
@@ -74,6 +75,13 @@ function normalizeTimes(value) {
 
 // --- Transport -------------------------------------------------------------
 
+/**
+ * The backend wraps every payload as { ok, meta, data } so responses carry
+ * their own provenance. Unwrap it here rather than in every caller, and
+ * surface the backend's error message when there is one — a 409 from the
+ * duty-hour gate is something the scheduler needs to read, not a generic
+ * "request failed".
+ */
 async function request(path, options) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
@@ -83,21 +91,36 @@ async function request(path, options) {
       signal: controller.signal,
       headers: { 'Content-Type': 'application/json', ...(options?.headers ?? {}) },
     })
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
-    const json = await res.json()
+
+    const json = await res.json().catch(() => null)
+
+    if (!res.ok) {
+      const message = json?.error?.message
+      // A refusal is a real answer from a reachable backend. Throwing a marked
+      // error keeps withFallback from mistaking it for the server being down
+      // and silently switching the whole app to mock data.
+      if (message) {
+        const err = new Error(message)
+        err.rejected = true
+        throw err
+      }
+      throw new Error(`${res.status} ${res.statusText}`)
+    }
+
     setMode('live')
-    return normalizeTimes(json)
+    return normalizeTimes(json?.data ?? json)
   } finally {
     clearTimeout(timer)
   }
 }
 
-/** Try the backend; on any transport failure, run the local equivalent. */
+/** Try the backend; on a transport failure, run the local equivalent. */
 async function withFallback(path, options, fallback) {
   if (mode === 'mock') return fallback()
   try {
     return await request(path, options)
-  } catch {
+  } catch (err) {
+    if (err?.rejected) throw err
     setMode('mock')
     return fallback()
   }
@@ -114,37 +137,41 @@ function localData() {
   return local
 }
 
+/** Whatever is currently live, for the client-side assignment model. */
+let live = null
+
+function activeData() {
+  return live ?? localData()
+}
+
 function findSurgeon(id) {
-  return localData().surgeons.find((s) => s.id === id) ?? null
+  return activeData().surgeons.find((s) => s.id === id) ?? null
 }
 
 // --- Public API ------------------------------------------------------------
 
 export const api = {
   async roster() {
-    return withFallback('/roster', undefined, () => {
+    const data = await withFallback('/roster', undefined, () => {
       const d = localData()
       return { surgeons: d.surgeons, cases: d.cases, generatedAt: d.generatedAt }
     })
+    live = data
+    return data
   },
 
   async assessFatigue({ surgeonId, at = Date.now(), horizonHours = 48 }) {
-    return withFallback('/assess-fatigue', post({ surgeonId, at, horizonHours }), () => {
-      const s = findSurgeon(surgeonId)
-      if (!s) return null
-      const result = assess(s, at)
-      return {
-        surgeonId,
-        ...result,
-        curve: curve(s, at - 12 * HOUR, at + horizonHours * HOUR),
-      }
-    })
+    const s = findSurgeon(surgeonId)
+    if (!s) return null
+    return {
+      surgeonId,
+      ...assess(s, at),
+      curve: curve(s, at - 12 * HOUR, at + horizonHours * HOUR),
+    }
   },
 
   async suggestAssignment({ caseId }) {
-    return withFallback('/suggest-assignment', post({ caseId }), () =>
-      suggestAssignment(localData(), caseId, Date.now())
-    )
+    return suggestAssignment(activeData(), caseId, Date.now())
   },
 
   async logSleep(entry) {
@@ -166,7 +193,7 @@ export const api = {
   },
 
   async clearFlag({ surgeonId }) {
-    return withFallback(`/flag/${surgeonId}`, { method: 'DELETE' }, () => {
+    return withFallback('/flag', post({ surgeonId, clear: true }), () => {
       const s = findSurgeon(surgeonId)
       if (!s) return { ok: false }
       s.flags = []
@@ -192,8 +219,8 @@ export const api = {
     })
   },
 
-  async reassign({ caseId, surgeonId }) {
-    return withFallback('/assign', post({ caseId, surgeonId }), () => {
+  async reassign({ caseId, surgeonId, reason }) {
+    return withFallback('/assign', post({ caseId, surgeonId, reason }), () => {
       const c = localData().cases.find((x) => x.id === caseId)
       if (!c) return { ok: false }
       c.surgeonId = surgeonId
