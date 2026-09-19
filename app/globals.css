@@ -1,0 +1,4 @@
+@import "tailwindcss";
+
+/* Tailwind v4 is wired up so the frontend branches aren't blocked on setup.
+   No design system is defined here — that belongs to feat/polish. */
