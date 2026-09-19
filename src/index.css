@@ -1,0 +1,68 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+
+  --color-canvas: #fbfbfa;
+  --color-surface: #ffffff;
+  --color-sunken: #f4f4f2;
+  --color-line: #dcdcd8;
+  --color-line-strong: #b4b4ae;
+
+  --color-ink: #17181a;
+  --color-ink-2: #53555a;
+  --color-ink-3: #7e8087;
+
+  --color-accent: #15616d;
+  --color-accent-ink: #0d444d;
+  --color-accent-soft: #e2eff1;
+
+  /* Status palette. The -mark values are validated for colour-vision
+     separation against each other on a light surface (worst adjacent pair
+     dE 19.2 protan). Text uses the darker -ok/-warn/-risk values, which are
+     always paired with a word label, so hue never carries identity alone. */
+  --color-ok: #14683d;
+  --color-ok-soft: #dcefe3;
+  --color-ok-mark: #17794a;
+
+  --color-warn: #8a5200;
+  --color-warn-soft: #f8e9cd;
+  --color-warn-mark: #e0a02c;
+
+  --color-risk: #a4261c;
+  --color-risk-soft: #f7dedb;
+  --color-risk-mark: #b3271d;
+
+  --radius-card: 6px;
+}
+
+html {
+  background: var(--color-canvas);
+}
+
+body {
+  margin: 0;
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* Numeric columns line up when figures share a width. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
