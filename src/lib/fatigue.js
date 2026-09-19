@@ -112,10 +112,17 @@ function subtractBlocks(start, end, blocks) {
 /**
  * Project the sleep a surgeon is likely to get between `from` and `to`, given
  * their habitual window and the duty they are already committed to.
+ *
+ * `assumption` shifts the habitual window and the quality credited to it. The
+ * default reproduces the habitual window exactly; the variants in SLEEP_SPREAD
+ * are what turn the forward curve into a range instead of a single line.
  */
-function planSleep(surgeon, from, to, logged = []) {
-  const { bedHour, wakeHour } = surgeon.habitualSleep
+function planSleep(surgeon, from, to, logged = [], assumption = null) {
+  const habitual = surgeon.habitualSleep
+  const bedHour = habitual.bedHour + (assumption?.bedShift ?? 0)
+  const wakeHour = habitual.wakeHour + (assumption?.wakeShift ?? 0)
   const duration = (wakeHour - bedHour + 24) % 24 || 7.5
+  const quality = assumption?.quality ?? 0.92
   const duty = surgeon.duty ?? []
   const planned = []
 
@@ -134,7 +141,7 @@ function planSleep(surgeon, from, to, logged = []) {
     const longest = free.sort((a, b) => b[1] - b[0] - (a[1] - a[0]))[0]
 
     if (longest && (longest[1] - longest[0]) / HOUR >= 3) {
-      planned.push({ start: longest[0], end: longest[1], quality: 0.92, projected: true })
+      planned.push({ start: longest[0], end: longest[1], quality, projected: true })
       continue
     }
 
@@ -151,7 +158,14 @@ function planSleep(surgeon, from, to, logged = []) {
       const start = gap[0] + 0.75 * HOUR // time to get home and wind down
       const end = Math.min(gap[1] - 0.5 * HOUR, start + 6 * HOUR)
       if ((end - start) / HOUR >= 3) {
-        planned.push({ start, end, quality: 0.72, projected: true, recovery: true })
+        // Sleep snatched after a shift is never as good as the habitual window.
+        planned.push({
+          start,
+          end,
+          quality: quality - 0.2,
+          projected: true,
+          recovery: true,
+        })
       }
     }
   }
@@ -159,13 +173,13 @@ function planSleep(surgeon, from, to, logged = []) {
 }
 
 /** Logged sleep plus projected future sleep, ordered and non-overlapping. */
-export function sleepTimeline(surgeon, from, to) {
+export function sleepTimeline(surgeon, from, to, assumption = null) {
   const logged = (surgeon.sleepLog ?? [])
     .filter((s) => s.end > from && s.start < to)
     .map((s) => ({ ...s, projected: false }))
 
   const lastLogged = logged.reduce((m, s) => Math.max(m, s.end), from)
-  const projected = planSleep(surgeon, Math.max(lastLogged, from), to, logged)
+  const projected = planSleep(surgeon, Math.max(lastLogged, from), to, logged, assumption)
 
   return [...logged, ...projected]
     .sort((a, b) => a.start - b.start)
@@ -227,9 +241,9 @@ function nightLoad(duty, t) {
  * Integrate process S across the sleep/wake timeline and sample effectiveness
  * every STEP_MIN minutes between `from` and `to`.
  */
-export function simulate(surgeon, from, to) {
+export function simulate(surgeon, from, to, { sleep = null } = {}) {
   const warmup = from - HISTORY_DAYS * 24 * HOUR
-  const episodes = sleepTimeline(surgeon, warmup - 2 * 24 * HOUR, to)
+  const episodes = sleepTimeline(surgeon, warmup - 2 * 24 * HOUR, to, sleep)
   const duty = surgeon.duty ?? []
   const shift = CHRONOTYPE_SHIFT[surgeon.chronotype] ?? 0
 
@@ -368,6 +382,43 @@ function describeCircadian(t, shift) {
 /** Sample the curve between two instants, for charts and heatmaps. */
 export function curve(surgeon, from, to) {
   return simulate(surgeon, from, to)
+}
+
+/**
+ * The forward curve is only as good as its sleep assumption, so quoting it as a
+ * single number past `now` overstates what the model knows. These two variants
+ * bracket the habitual window: a short late night, and an undisturbed one.
+ */
+export const SLEEP_SPREAD = {
+  low: { bedShift: 1, wakeShift: -0.5, quality: 0.8 },
+  high: { bedShift: -0.25, wakeShift: 0.5, quality: 0.95 },
+}
+
+/** The sleep each variant assumes, in hours, for captioning the chart. */
+export function spreadHours(surgeon) {
+  const { bedHour, wakeHour } = surgeon.habitualSleep
+  const hours = (wakeHour - bedHour + 24) % 24 || 7.5
+  const span = (v) => hours - v.bedShift + v.wakeShift
+  return { hours, low: span(SLEEP_SPREAD.low), high: span(SLEEP_SPREAD.high) }
+}
+
+/**
+ * Widen an existing curve into a range by re-running the simulation under both
+ * sleep variants. The range closes to nothing over logged sleep, which is what
+ * makes the past read as measured and the future as forecast.
+ */
+export function withSpread(surgeon, samples) {
+  if (!samples.length) return samples
+  const from = samples[0].t
+  const to = samples[samples.length - 1].t
+  const low = simulate(surgeon, from, to, { sleep: SLEEP_SPREAD.low })
+  const high = simulate(surgeon, from, to, { sleep: SLEEP_SPREAD.high })
+
+  return samples.map((s, i) => {
+    const a = low[i]?.score ?? s.score
+    const b = high[i]?.score ?? s.score
+    return { ...s, lo: Math.min(s.score, a, b), hi: Math.max(s.score, a, b) }
+  })
 }
 
 /**

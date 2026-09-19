@@ -26,9 +26,7 @@ export const BAND_STYLE = {
 
 export function Panel({ children, className = '' }) {
   return (
-    <section
-      className={`border border-line bg-surface rounded-[6px] ${className}`}
-    >
+    <section className={`rounded-card border border-line bg-surface ${className}`}>
       {children}
     </section>
   )
@@ -38,10 +36,8 @@ export function PanelHeader({ title, meta, action }) {
   return (
     <header className="flex items-baseline justify-between gap-4 border-b border-line px-4 py-3">
       <div>
-        <h2 className="text-[13px] font-semibold tracking-wide uppercase text-ink-2">
-          {title}
-        </h2>
-        {meta ? <p className="mt-0.5 text-[13px] text-ink-3">{meta}</p> : null}
+        <h2 className="text-lead font-medium text-ink">{title}</h2>
+        {meta ? <p className="mt-0.5 text-sm text-ink-3">{meta}</p> : null}
       </div>
       {action}
     </header>
@@ -55,7 +51,7 @@ export function Button({
   ...props
 }) {
   const base =
-    'inline-flex items-center gap-1.5 rounded-[4px] border px-3 py-1.5 text-[13px] font-medium transition-colors duration-150 disabled:opacity-45 disabled:cursor-not-allowed'
+    'inline-flex items-center justify-center gap-1.5 rounded-control border px-3 py-2 text-sm font-medium transition-colors duration-150 disabled:opacity-45 disabled:cursor-not-allowed'
   const variants = {
     default: 'border-line-strong bg-surface text-ink hover:bg-sunken',
     primary:
@@ -72,10 +68,10 @@ export function Button({
 
 export function RiskPill({ band, score, size = 'md' }) {
   const style = BAND_STYLE[band.key]
-  const pad = size === 'sm' ? 'px-1.5 py-px text-[11px]' : 'px-2 py-0.5 text-[12px]'
+  const pad = size === 'sm' ? 'px-1.5 py-px text-micro' : 'px-2 py-0.5 text-meta'
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-[3px] border ${style.border} ${style.bg} ${style.text} ${pad} font-medium`}
+      className={`inline-flex items-center gap-1.5 rounded-[4px] border ${style.border} ${style.bg} ${style.text} ${pad} font-medium`}
     >
       <span
         aria-hidden="true"
@@ -91,49 +87,101 @@ export function RiskPill({ band, score, size = 'md' }) {
 export function Stat({ label, value, unit, hint, tone }) {
   return (
     <div className="px-4 py-3">
-      <dt className="text-[12px] uppercase tracking-wide text-ink-3">{label}</dt>
-      <dd className="mt-1 flex items-baseline gap-1">
-        <span className={`tnum text-[22px] leading-none font-semibold ${tone ?? 'text-ink'}`}>
+      <dt className="text-meta text-ink-3">{label}</dt>
+      <dd className="mt-1.5 flex items-baseline gap-1">
+        <span className={`tnum text-metric font-semibold ${tone ?? 'text-ink'}`}>
           {value}
         </span>
-        {unit ? <span className="text-[13px] text-ink-3">{unit}</span> : null}
+        {unit ? <span className="text-sm text-ink-3">{unit}</span> : null}
       </dd>
-      {hint ? <p className="mt-1 text-[12px] text-ink-3">{hint}</p> : null}
+      {hint ? <p className="mt-1 text-meta text-ink-3">{hint}</p> : null}
     </div>
   )
 }
 
+const labelClass = 'text-meta font-medium text-ink-2'
+
+/** Without `htmlFor` the label has no single control to point at, so the group
+ *  gets a fieldset and legend instead of a dangling label. */
 export function Field({ label, hint, htmlFor, children }) {
+  if (!htmlFor) {
+    return (
+      <fieldset className="min-w-0">
+        <legend className={`mb-1.5 ${labelClass}`}>{label}</legend>
+        {children}
+        {hint ? <p className="mt-1.5 text-meta text-ink-3">{hint}</p> : null}
+      </fieldset>
+    )
+  }
   return (
-    <div className="flex flex-col gap-1">
-      <label htmlFor={htmlFor} className="text-[13px] font-medium text-ink-2">
+    <div className="flex flex-col gap-1.5">
+      <label htmlFor={htmlFor} className={labelClass}>
         {label}
       </label>
       {children}
-      {hint ? <p className="text-[12px] text-ink-3">{hint}</p> : null}
+      {hint ? <p className="text-meta text-ink-3">{hint}</p> : null}
     </div>
   )
 }
 
 const controlClass =
-  'w-full rounded-[4px] border border-line-strong bg-surface px-2.5 py-1.5 text-[14px] text-ink placeholder:text-ink-3 focus:border-accent'
+  'w-full rounded-control border border-line-strong bg-surface px-2.5 py-2 text-body text-ink placeholder:text-ink-3 hover:border-ink-3 focus:border-accent transition-colors duration-150'
 
-export function Input(props) {
-  return <input className={controlClass} {...props} />
+export function Input({ className = '', ...props }) {
+  return <input className={`${controlClass} ${className}`} {...props} />
 }
 
-export function Select({ children, ...props }) {
+export function Select({ children, className = '', ...props }) {
   return (
-    <select className={controlClass} {...props}>
+    <select className={`${controlClass} ${className}`} {...props}>
       {children}
     </select>
   )
 }
 
-export function Textarea(props) {
-  return <textarea className={`${controlClass} resize-y`} rows={3} {...props} />
+export function Textarea({ className = '', ...props }) {
+  return <textarea className={`${controlClass} resize-y ${className}`} rows={3} {...props} />
+}
+
+/**
+ * Radio group rendered as adjacent segments. Real radios underneath, so arrow
+ * keys and screen readers work without any extra handling.
+ */
+export function Segmented({ name, value, onChange, options, columns }) {
+  return (
+    <div
+      className={`grid gap-1.5 ${columns ? '' : 'grid-flow-col auto-cols-fr'}`}
+      style={columns ? { gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` } : undefined}
+    >
+      {options.map((opt) => {
+        const checked = value === opt.value
+        return (
+          <label key={opt.value} className="block">
+            <input
+              type="radio"
+              name={name}
+              value={opt.value}
+              checked={checked}
+              onChange={() => onChange(opt.value)}
+              className="peer sr-only"
+            />
+            <span
+              className="block cursor-pointer rounded-control border border-line-strong bg-surface px-2 py-1.5 text-center text-sm text-ink-2 transition-colors duration-150 hover:bg-sunken peer-checked:border-accent peer-checked:bg-accent-soft peer-checked:font-medium peer-checked:text-accent-ink peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent"
+            >
+              {opt.label}
+              {opt.hint ? (
+                <span className="mt-0.5 block text-micro font-normal text-ink-3">
+                  {opt.hint}
+                </span>
+              ) : null}
+            </span>
+          </label>
+        )
+      })}
+    </div>
+  )
 }
 
 export function EmptyState({ children }) {
-  return <p className="px-4 py-6 text-[13px] text-ink-3">{children}</p>
+  return <p className="px-4 py-6 text-sm text-ink-3">{children}</p>
 }

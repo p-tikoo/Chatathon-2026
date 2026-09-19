@@ -17,8 +17,8 @@ export default function DriverBreakdown({ drivers }) {
         return (
           <li key={d.key} className="grid grid-cols-[1fr_72px_48px] items-center gap-3 px-4 py-2.5">
             <div className="min-w-0">
-              <p className="text-[13px] text-ink">{d.label}</p>
-              <p className="text-[12px] leading-snug text-ink-3">{d.detail}</p>
+              <p className="text-sm text-ink">{d.label}</p>
+              <p className="text-meta text-ink-3">{d.detail}</p>
             </div>
 
             <div className="relative h-3" aria-hidden="true">
@@ -36,7 +36,7 @@ export default function DriverBreakdown({ drivers }) {
             </div>
 
             <span
-              className={`tnum text-right text-[13px] font-medium ${
+              className={`tnum text-right text-sm font-medium ${
                 negative ? 'text-risk' : 'text-ok'
               }`}
             >

@@ -9,7 +9,14 @@ const ACUITY_STYLE = {
   emergent: 'text-risk border-risk/40 bg-risk-soft',
 }
 
-export default function CaseList({ cases, samples, now, onSelectCase, selectedCaseId }) {
+export default function CaseList({
+  cases,
+  samples,
+  now,
+  onSelectCase,
+  selectedCaseId,
+  compact = false,
+}) {
   if (!cases.length) {
     return <EmptyState>No cases scheduled in the next 48 hours.</EmptyState>
   }
@@ -25,37 +32,44 @@ export default function CaseList({ cases, samples, now, onSelectCase, selectedCa
         return (
           <li key={c.id}>
             <Tag
-              {...(interactive
-                ? { type: 'button', onClick: () => onSelectCase(c.id) }
-                : {})}
-              className={`grid w-full grid-cols-[86px_1fr_auto] items-start gap-3 px-4 py-3 text-left transition-colors duration-150 ${
+              {...(interactive ? { type: 'button', onClick: () => onSelectCase(c.id) } : {})}
+              className={`grid w-full grid-cols-[72px_1fr_auto] items-baseline gap-3 px-4 py-3 text-left transition-colors duration-150 ${
                 interactive ? 'hover:bg-sunken' : ''
               } ${selectedCaseId === c.id ? 'bg-accent-soft' : ''}`}
             >
-              <div className="tnum text-[13px] text-ink-2">
-                <div className="font-medium text-ink">{fmtTime(c.start)}</div>
-                <div className="text-[12px] text-ink-3">{fmtDayShort(c.start)}</div>
+              <div className="tnum text-sm text-ink-2">
+                <span className="text-lead font-medium text-ink">{fmtTime(c.start)}</span>
+                <span className="block text-meta text-ink-3">{fmtDayShort(c.start)}</span>
               </div>
 
               <div className="min-w-0">
-                <p className="text-[14px] text-ink">{c.procedure}</p>
-                <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-ink-3">
-                  <span>{c.room}</span>
-                  <span aria-hidden="true">&middot;</span>
-                  <span>{fmtDuration(c.durationMin / 60)}</span>
-                  <span aria-hidden="true">&middot;</span>
-                  <span>Complexity {c.complexity}</span>
-                  <span
-                    className={`rounded-[3px] border px-1 text-[11px] capitalize ${ACUITY_STYLE[c.acuity]}`}
-                  >
-                    {c.acuity}
-                  </span>
-                </p>
+                <p className="text-body text-ink">{c.procedure}</p>
+                {compact ? (
+                  <p className="mt-0.5 text-meta text-ink-3">
+                    {c.room} · {fmtDuration(c.durationMin / 60)}
+                    {c.start > now ? ` · ${relTime(c.start, now)}` : ''}
+                  </p>
+                ) : (
+                  <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-meta text-ink-3">
+                    <span>{c.room}</span>
+                    <span aria-hidden="true">&middot;</span>
+                    <span>{fmtDuration(c.durationMin / 60)}</span>
+                    <span aria-hidden="true">&middot;</span>
+                    <span>Complexity {c.complexity}</span>
+                    <span
+                      className={`rounded-[4px] border px-1 text-micro capitalize ${ACUITY_STYLE[c.acuity]}`}
+                    >
+                      {c.acuity}
+                    </span>
+                  </p>
+                )}
               </div>
 
               <div className="flex flex-col items-end gap-1">
                 {band ? <RiskPill band={band} score={low.score} size="sm" /> : null}
-                <span className="text-[11px] text-ink-3">{relTime(c.start, now)}</span>
+                {!compact ? (
+                  <span className="text-micro text-ink-3">{relTime(c.start, now)}</span>
+                ) : null}
               </div>
             </Tag>
           </li>

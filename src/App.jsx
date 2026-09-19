@@ -9,7 +9,7 @@ function ModeIndicator({ mode }) {
   const live = mode === 'live'
   return (
     <span
-      className="inline-flex items-center gap-1.5 text-[12px] text-ink-2"
+      className="inline-flex items-center gap-1.5 text-meta text-ink-2"
       title={
         live
           ? 'Connected to the scheduling service'
@@ -42,27 +42,27 @@ export default function App() {
 
   return (
     <div className="min-h-screen">
-      <div className="border-b border-line bg-sunken px-4 py-1.5 text-[12px] text-ink-2">
+      <div className="border-b border-line bg-sunken px-4 py-1.5 text-meta text-ink-2">
         Synthetic data. Every surgeon, case, shift and sleep record in this
         application is fabricated for demonstration. Not a clinical decision tool.
       </div>
 
-      <header className="border-b border-line bg-surface">
+      <header className="sticky top-0 z-10 border-b border-line bg-surface">
         <div className="mx-auto flex max-w-[1240px] flex-wrap items-center justify-between gap-3 px-4 py-3">
           <div>
-            <p className="text-[15px] font-semibold tracking-tight text-ink">
+            <p className="text-lead font-semibold text-ink">
               Theatre scheduling, fatigue-aware
             </p>
-            <p className="text-[12px] text-ink-3">
+            <p className="text-meta text-ink-3">
               Two-process alertness model over the operating roster
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-4">
             <ModeIndicator mode={mode} />
 
             <div className="flex items-center gap-2">
-              <label htmlFor="viewer" className="text-[13px] text-ink-2">
+              <label htmlFor="viewer" className="text-meta font-medium text-ink-2">
                 View as
               </label>
               <select
@@ -73,7 +73,7 @@ export default function App() {
                     ? setRegistering(true)
                     : onSwitch(e.target.value)
                 }
-                className="rounded-[4px] border border-line-strong bg-surface px-2 py-1.5 text-[13px] text-ink"
+                className="rounded-control border border-line-strong bg-surface px-2.5 py-1.5 text-sm text-ink transition-colors duration-150 hover:border-ink-3 focus:border-accent"
               >
                 <option value="director">OR Director</option>
                 <optgroup label="Surgeons">
@@ -90,7 +90,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-[1240px] px-4 py-5">
+      <main className="mx-auto max-w-[1240px] px-4 py-6">
         {error ? (
           <Panel className="mb-4">
             <EmptyState>{error}</EmptyState>

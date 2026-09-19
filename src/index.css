@@ -1,16 +1,41 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI",
     "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
     "Liberation Mono", monospace;
 
-  --color-canvas: #fbfbfa;
+  /* Type scale. Named by role so the intended hierarchy is readable in the
+     markup: one hero number, one page title, then three body steps. */
+  --text-micro: 0.6875rem;
+  --text-micro--line-height: 1.3;
+  --text-meta: 0.75rem;
+  --text-meta--line-height: 1.4;
+  --text-sm: 0.8125rem;
+  --text-sm--line-height: 1.5;
+  --text-body: 0.875rem;
+  --text-body--line-height: 1.55;
+  --text-lead: 1rem;
+  --text-lead--line-height: 1.5;
+  --text-h2: 1.1875rem;
+  --text-h2--line-height: 1.3;
+  --text-h2--letter-spacing: -0.01em;
+  --text-h1: 1.625rem;
+  --text-h1--line-height: 1.2;
+  --text-h1--letter-spacing: -0.018em;
+  --text-metric: 1.5rem;
+  --text-metric--line-height: 1;
+  --text-metric--letter-spacing: -0.02em;
+  --text-hero: 3.25rem;
+  --text-hero--line-height: 1;
+  --text-hero--letter-spacing: -0.035em;
+
+  --color-canvas: #f6f6f5;
   --color-surface: #ffffff;
-  --color-sunken: #f4f4f2;
-  --color-line: #dcdcd8;
-  --color-line-strong: #b4b4ae;
+  --color-sunken: #f1f1ef;
+  --color-line: #e3e3df;
+  --color-line-strong: #c0c0ba;
 
   --color-ink: #17181a;
   --color-ink-2: #53555a;
@@ -36,7 +61,8 @@
   --color-risk-soft: #f7dedb;
   --color-risk-mark: #b3271d;
 
-  --radius-card: 6px;
+  --radius-card: 8px;
+  --radius-control: 6px;
 }
 
 html {
@@ -47,6 +73,8 @@ body {
   margin: 0;
   color: var(--color-ink);
   font-family: var(--font-sans);
+  font-size: var(--text-body);
+  letter-spacing: -0.006em;
   -webkit-font-smoothing: antialiased;
 }
 

@@ -1,8 +1,14 @@
 import React, { useMemo, useState } from 'react'
-import { TriangleAlert, X } from 'lucide-react'
+import { ChevronRight, TriangleAlert, X } from 'lucide-react'
 import { useStore } from '../lib/store.jsx'
-import { sleepTimeline, lowestDuring, bandFor } from '../lib/fatigue.js'
-import { HOUR, fmtDayShort, fmtDuration, fmtTime, relTime } from '../lib/time.js'
+import {
+  bandFor,
+  lowestDuring,
+  sleepTimeline,
+  spreadHours,
+  withSpread,
+} from '../lib/fatigue.js'
+import { HOUR, fmtDayShort, fmtDuration, fmtTime } from '../lib/time.js'
 import AlertnessChart, { ChartKey } from '../components/AlertnessChart.jsx'
 import CaseList from '../components/CaseList.jsx'
 import DriverBreakdown from '../components/DriverBreakdown.jsx'
@@ -14,9 +20,7 @@ import {
   Field,
   Panel,
   PanelHeader,
-  RiskPill,
   Select,
-  Stat,
   Textarea,
 } from '../components/ui.jsx'
 
@@ -30,19 +34,13 @@ function FlagControl({ surgeon, onRaise, onClear }) {
   if (active) {
     return (
       <div className="px-4 py-4">
-        <div className="flex items-start gap-2 rounded-[4px] border border-risk/40 bg-risk-soft px-3 py-2.5">
+        <div className="flex items-start gap-2 rounded-control border border-risk/40 bg-risk-soft px-3 py-2.5">
           <TriangleAlert size={16} className="mt-0.5 shrink-0 text-risk" aria-hidden="true" />
           <div className="min-w-0">
-            <p className="text-[13px] font-medium text-risk">
-              {active.severity === 'stand-down'
-                ? 'Stand-down raised'
-                : 'Advisory raised'}
+            <p className="text-sm font-medium text-risk">
+              {active.severity === 'stand-down' ? 'Stand-down raised' : 'Advisory raised'}
             </p>
-            <p className="mt-0.5 text-[13px] text-ink-2">{active.reason}</p>
-            <p className="mt-1 text-[12px] text-ink-3">
-              Sent to the OR director {relTime(active.at)}. You are excluded from new
-              assignments while this is active.
-            </p>
+            <p className="mt-0.5 text-sm text-ink-2">{active.reason}</p>
           </div>
         </div>
         <Button className="mt-3" onClick={() => onClear({ surgeonId: surgeon.id })}>
@@ -56,21 +54,20 @@ function FlagControl({ surgeon, onRaise, onClear }) {
   if (!open) {
     return (
       <div className="px-4 py-4">
-        <p className="text-[13px] text-ink-2">
-          If you do not think you are safe to operate, say so. The director sees it
-          immediately and the scheduler stops offering you new cases.
-        </p>
-        <Button variant="danger" className="mt-3" onClick={() => setOpen(true)}>
+        <Button variant="danger" onClick={() => setOpen(true)}>
           <TriangleAlert size={13} aria-hidden="true" />
           Flag me as fatigued
         </Button>
+        <p className="mt-2 text-meta text-ink-3">
+          Notifies the director and stops new case offers.
+        </p>
       </div>
     )
   }
 
   return (
     <form
-      className="px-4 py-4"
+      className="grid gap-3 px-4 py-4"
       onSubmit={async (e) => {
         e.preventDefault()
         setBusy(true)
@@ -83,32 +80,26 @@ function FlagControl({ surgeon, onRaise, onClear }) {
         }
       }}
     >
-      <div className="grid gap-3">
-        <Field label="What is the concern?" htmlFor="flag-reason">
-          <Textarea
-            id="flag-reason"
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            placeholder="Third night in a row, and I have a long resection listed at 08:00."
-            required
-          />
-        </Field>
-        <Field
-          label="Level"
-          htmlFor="flag-severity"
-          hint="A stand-down removes you from the assignment pool for 12 hours."
+      <Field label="What is the concern" htmlFor="flag-reason">
+        <Textarea
+          id="flag-reason"
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="Third night in a row, and I have a long resection listed at 08:00."
+          required
+        />
+      </Field>
+      <Field label="Level" htmlFor="flag-severity">
+        <Select
+          id="flag-severity"
+          value={severity}
+          onChange={(e) => setSeverity(e.target.value)}
         >
-          <Select
-            id="flag-severity"
-            value={severity}
-            onChange={(e) => setSeverity(e.target.value)}
-          >
-            <option value="advisory">Advisory, avoid high-complexity cases</option>
-            <option value="stand-down">Stand-down, not safe to operate</option>
-          </Select>
-        </Field>
-      </div>
-      <div className="mt-3 flex gap-2">
+          <option value="advisory">Advisory, avoid high-complexity cases</option>
+          <option value="stand-down">Stand-down, not safe to operate</option>
+        </Select>
+      </Field>
+      <div className="flex gap-2">
         <Button type="submit" variant="danger" disabled={busy || !reason.trim()}>
           {busy ? 'Sending' : 'Send to director'}
         </Button>
@@ -117,6 +108,36 @@ function FlagControl({ surgeon, onRaise, onClear }) {
         </Button>
       </div>
     </form>
+  )
+}
+
+function statusNote(assessment, activeFlag) {
+  if (activeFlag) {
+    return activeFlag.severity === 'stand-down'
+      ? 'You have stood yourself down. New cases are not being offered.'
+      : 'Your advisory is with the director.'
+  }
+  if (assessment.asleep) {
+    return 'Logged asleep. This is the score the model expects once you are up.'
+  }
+  return assessment.band.note
+}
+
+function hourLabel(hour) {
+  const h = ((Math.floor(hour) % 24) + 24) % 24
+  const m = Math.round((hour - Math.floor(hour)) * 60)
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+}
+
+function Metric({ label, value, unit }) {
+  return (
+    <div className="px-4 py-2.5">
+      <dt className="text-meta text-ink-3">{label}</dt>
+      <dd className="mt-0.5 text-lead text-ink">
+        <span className="tnum font-medium">{value}</span>
+        {unit ? <span className="ml-0.5 text-sm text-ink-3">{unit}</span> : null}
+      </dd>
+    </div>
   )
 }
 
@@ -139,6 +160,13 @@ export default function SurgeonView({ surgeonId }) {
     [surgeon, now]
   )
 
+  // The forward half of the curve rests on sleep that has not happened, so it
+  // carries the range implied by getting less or more of it.
+  const curve = useMemo(
+    () => (surgeon && projection ? withSpread(surgeon, projection.curve) : []),
+    [surgeon, projection]
+  )
+
   const todayShift = useMemo(() => {
     if (!surgeon) return null
     const upcoming = (surgeon.duty ?? [])
@@ -149,139 +177,141 @@ export default function SurgeonView({ surgeonId }) {
 
   if (!surgeon || !projection) return <EmptyState>Loading.</EmptyState>
 
-  const { assessment, curve } = projection
+  const { assessment } = projection
   const style = BAND_STYLE[assessment.band.key]
   const activeFlag = (surgeon.flags ?? []).slice(-1)[0] ?? null
-  const nextCase = cases[0]
-  const nextCaseLow = nextCase ? lowestDuring(curve, nextCase.start, nextCase.end) : null
-
   const worstAhead = lowestDuring(curve, now, now + 24 * HOUR)
+  const recentSleep = surgeon.sleepLog.slice(-3).reverse()
+  const sleep = spreadHours(surgeon)
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
+    <div className="grid gap-4 lg:grid-cols-[minmax(0,1.65fr)_minmax(300px,1fr)]">
       <div className="grid content-start gap-4">
         <Panel>
-          <div className="flex flex-wrap items-start justify-between gap-3 border-b border-line px-4 py-3">
+          <div className="flex flex-wrap items-start justify-between gap-3 px-4 pt-4">
             <div>
-              <h1 className="text-[18px] font-semibold text-ink">{surgeon.name}</h1>
-              <p className="text-[13px] text-ink-3">
+              <h1 className="text-h1 font-semibold text-ink">{surgeon.name}</h1>
+              <p className="mt-0.5 text-sm text-ink-3">
                 {surgeon.role} · {surgeon.specialty}
               </p>
             </div>
-            <div className="flex flex-col items-end">
-              <div className="flex items-center gap-1.5">
-                {assessment.asleep ? (
-                  <span className="rounded-[3px] border border-line px-1.5 py-0.5 text-[12px] text-ink-2">
-                    Asleep
-                  </span>
-                ) : null}
-                <RiskPill band={assessment.band} />
-              </div>
-              <p className="mt-1 max-w-[280px] text-right text-[12px] text-ink-3">
-                {activeFlag
-                  ? activeFlag.severity === 'stand-down'
-                    ? 'You have stood yourself down. The scheduler is not offering you new cases.'
-                    : 'Your advisory is with the director.'
-                  : assessment.asleep
-                    ? 'Logged asleep. This is the score the model expects once you are up and past sleep inertia.'
-                    : assessment.band.note}
+            {assessment.asleep ? (
+              <span className="rounded-[4px] border border-line bg-sunken px-2 py-0.5 text-meta text-ink-2">
+                Asleep
+              </span>
+            ) : null}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-4 py-5">
+            <p className="flex items-baseline gap-1.5">
+              <span className={`tnum text-hero font-semibold ${style.text}`}>
+                {Math.round(assessment.score)}
+              </span>
+              <span className="text-sm text-ink-3">/ 100</span>
+            </p>
+            <div className="min-w-0 max-w-[36ch]">
+              <p className={`text-h2 font-medium ${style.text}`}>{assessment.band.label}</p>
+              <p className="mt-0.5 text-sm text-ink-2">
+                {statusNote(assessment, activeFlag)}
               </p>
             </div>
           </div>
 
-          <dl className="grid grid-cols-2 divide-x divide-line sm:grid-cols-4">
-            <Stat
-              label="Effectiveness"
-              value={Math.round(assessment.score)}
-              unit="/ 100"
-              tone={style.text}
-              hint={assessment.asleep ? 'Currently logged asleep' : 'Right now'}
-            />
-            <Stat
-              label="Awake"
-              value={assessment.hoursAwake.toFixed(1)}
-              unit="h"
-              hint="Since last recorded sleep"
-            />
-            <Stat
-              label="Sleep debt"
-              value={assessment.sleepDebt.toFixed(1)}
-              unit="h"
-              hint="Rolling 7 days"
-            />
-            <Stat
+          <dl className="grid grid-cols-3 divide-x divide-line border-t border-line">
+            <Metric label="Awake" value={assessment.hoursAwake.toFixed(1)} unit="h" />
+            <Metric label="Sleep debt" value={assessment.sleepDebt.toFixed(1)} unit="h" />
+            <Metric
               label="On shift"
               value={assessment.timeOnTask > 0 ? assessment.timeOnTask.toFixed(1) : '—'}
               unit={assessment.timeOnTask > 0 ? 'h' : ''}
-              hint={assessment.timeOnTask > 0 ? 'Continuous duty' : 'Off duty'}
             />
           </dl>
 
           {todayShift ? (
-            <p className="border-t border-line px-4 py-2.5 text-[13px] text-ink-2">
+            <p className="border-t border-line px-4 py-2.5 text-sm text-ink-2">
               <span className="font-medium text-ink">{todayShift.kind}</span>{' '}
               {fmtDayShort(todayShift.start)} {fmtTime(todayShift.start)}–
               {fmtTime(todayShift.end)}
               <span className="text-ink-3">
-                {' '}
-                · {fmtDuration((todayShift.end - todayShift.start) / HOUR)} ·{' '}
-                {todayShift.start > now
-                  ? `starts ${relTime(todayShift.start, now)}`
-                  : `ends ${relTime(todayShift.end, now)}`}
+                {' · '}
+                {fmtDuration((todayShift.end - todayShift.start) / HOUR)}
               </span>
             </p>
           ) : null}
+
+          <details className="group border-t border-line">
+            <summary className="flex cursor-pointer list-none items-center gap-1.5 px-4 py-2.5 text-sm text-ink-2 transition-colors duration-150 hover:bg-sunken [&::-webkit-details-marker]:hidden">
+              <ChevronRight
+                size={14}
+                aria-hidden="true"
+                className="text-ink-3 transition-transform duration-150 group-open:rotate-90"
+              />
+              Why this score
+            </summary>
+            <DriverBreakdown drivers={assessment.drivers} />
+          </details>
         </Panel>
 
         <Panel>
           <PanelHeader
-            title="Predicted effectiveness"
-            meta="Next 48 hours, against your logged sleep and rostered duty"
+            title="Next 48 hours"
+            meta={
+              worstAhead
+                ? `Projected low ${worstAhead.score.toFixed(0)} at ${fmtDayShort(worstAhead.t)} ${fmtTime(worstAhead.t)}, ${bandFor(worstAhead.score).label.toLowerCase()}`
+                : undefined
+            }
           />
-          <div className="px-2 pt-3">
+          <div className="px-2 pt-3 pb-1">
             <AlertnessChart
               samples={curve}
               now={now}
               sleepWindows={sleepWindows}
               cases={cases}
-              height={250}
+              height={210}
             />
           </div>
-          <ChartKey />
-          {worstAhead ? (
-            <p className="border-t border-line px-4 py-2.5 text-[13px] text-ink-2">
-              Lowest point in the next 24 hours:{' '}
-              <span className="tnum font-medium text-ink">
-                {worstAhead.score.toFixed(0)}
-              </span>{' '}
-              at {fmtDayShort(worstAhead.t)} {fmtTime(worstAhead.t)} (
-              {bandFor(worstAhead.score).label.toLowerCase()}).
-            </p>
-          ) : null}
+          <ChartKey spread />
+          <p className="border-t border-line px-4 py-2.5 text-sm text-ink-3">
+            Up to <span className="text-ink-2">now</span> the curve is integrated from
+            the sleep you logged. After it, the model assumes you sleep{' '}
+            {hourLabel(surgeon.habitualSleep.bedHour)}–
+            {hourLabel(surgeon.habitualSleep.wakeHour)} on nights you are not rostered,
+            keeps the duty already on the roster, and adds no new cases. The shaded
+            range is what changes if you get {fmtDuration(sleep.low)} instead of{' '}
+            {fmtDuration(sleep.high)}.
+          </p>
         </Panel>
 
         <Panel>
           <PanelHeader
             title="Upcoming cases"
-            meta={
-              nextCaseLow
-                ? `Next case at ${fmtTime(nextCase.start)}, predicted ${nextCaseLow.score.toFixed(0)} at its low point`
-                : undefined
-            }
+            meta={cases.length ? `${cases.length} in the next 48 hours` : undefined}
           />
-          <CaseList cases={cases} samples={curve} now={now} />
+          <CaseList cases={cases} samples={curve} now={now} compact />
         </Panel>
       </div>
 
       <div className="grid content-start gap-4">
         <Panel>
-          <PanelHeader title="Log sleep" meta="Updates the model immediately" />
+          <PanelHeader title="Log sleep" />
           <SleepLogForm surgeon={surgeon} now={now} onSubmit={store.logSleep} />
-        </Panel>
-
-        <Panel>
-          <PanelHeader title="Why this score" meta="Contribution to the number above" />
-          <DriverBreakdown drivers={assessment.drivers} />
+          {recentSleep.length ? (
+            <ul className="divide-y divide-line border-t border-line">
+              {recentSleep.map((s, i) => (
+                <li
+                  key={i}
+                  className="flex items-baseline justify-between gap-3 px-4 py-2 text-sm"
+                >
+                  <span className="tnum text-ink">
+                    {fmtDayShort(s.start)} {fmtTime(s.start)}–{fmtTime(s.end)}
+                  </span>
+                  <span className="tnum text-meta text-ink-3">
+                    {fmtDuration((s.end - s.start) / HOUR)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </Panel>
 
         <Panel>
@@ -291,33 +321,6 @@ export default function SurgeonView({ surgeonId }) {
             onRaise={store.raiseFlag}
             onClear={store.clearFlag}
           />
-        </Panel>
-
-        <Panel>
-          <PanelHeader title="Recent sleep" meta="Last five records" />
-          {surgeon.sleepLog.length ? (
-            <ul className="divide-y divide-line">
-              {surgeon.sleepLog
-                .slice(-5)
-                .reverse()
-                .map((s, i) => (
-                  <li
-                    key={i}
-                    className="flex items-baseline justify-between gap-3 px-4 py-2.5"
-                  >
-                    <span className="text-[13px] text-ink">
-                      {fmtDayShort(s.start)} {fmtTime(s.start)}–{fmtTime(s.end)}
-                    </span>
-                    <span className="text-[12px] text-ink-3">
-                      {fmtDuration((s.end - s.start) / HOUR)} · {s.source ?? 'self-report'}
-                      {s.displaced ? ' · displaced by duty' : ''}
-                    </span>
-                  </li>
-                ))}
-            </ul>
-          ) : (
-            <EmptyState>No sleep recorded yet.</EmptyState>
-          )}
         </Panel>
       </div>
     </div>

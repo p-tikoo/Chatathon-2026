@@ -1,114 +1,176 @@
 import React, { useState } from 'react'
-import { HOUR, atHour, startOfDay, fmtDuration } from '../lib/time.js'
-import { Button, Field, Input, Select } from './ui.jsx'
+import { ArrowRight } from 'lucide-react'
+import { DAY, HOUR, MIN, fmtDayShort, fmtDuration, startOfDay } from '../lib/time.js'
+import { Button, Field, Input, Segmented } from './ui.jsx'
 
-function toLocalInput(ms) {
-  const d = new Date(ms)
-  const pad = (n) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+const QUALITY = [
+  { value: '0.95', label: 'Undisturbed' },
+  { value: '0.88', label: 'Woke once' },
+  { value: '0.72', label: 'Broken' },
+  { value: '0.55', label: 'Barely slept' },
+]
+
+function pad(n) {
+  return String(n).padStart(2, '0')
 }
 
-/** Default to the surgeon's habitual window on the night just gone. */
-function defaultWindow(surgeon, now) {
-  const { bedHour, wakeHour } = surgeon.habitualSleep ?? { bedHour: 23, wakeHour: 7 }
-  const duration = (wakeHour - bedHour + 24) % 24 || 7.5
-  let start = atHour(startOfDay(now) - 24 * HOUR, bedHour)
-  while (start + duration * HOUR < now - 24 * HOUR) start += 24 * HOUR
-  return { start, end: start + duration * HOUR }
+/** "23:00" from an hour float, for prefilling from a habitual bed/wake hour. */
+function hourToTime(hour) {
+  const h = Math.floor(hour) % 24
+  const m = Math.round((hour - Math.floor(hour)) * 60)
+  return `${pad(h)}:${pad(m)}`
+}
+
+/** Minutes past midnight from "HH:MM", or null if the field is incomplete. */
+function parseTime(value) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(value)
+  if (!m) return null
+  const h = Number(m[1])
+  const min = Number(m[2])
+  if (h > 23 || min > 59) return null
+  return h * HOUR + min * MIN
+}
+
+/**
+ * The three most recent mornings. A night is identified by the morning it ends
+ * on, which is how people date a night's sleep, and is what keeps the form down
+ * to two clock times instead of two full datetimes.
+ */
+function recentNights(now, wakeHour) {
+  const today = startOfDay(now)
+  const lastMorning = now >= today + wakeHour * HOUR ? today : today - DAY
+  return [0, 1, 2].map((i) => {
+    const morning = lastMorning - i * DAY
+    return {
+      value: String(morning),
+      label: i === 0 ? 'Last night' : `${fmtDayShort(morning - DAY)} night`,
+    }
+  })
 }
 
 export default function SleepLogForm({ surgeon, now, onSubmit }) {
-  const initial = defaultWindow(surgeon, now)
-  const [start, setStart] = useState(toLocalInput(initial.start))
-  const [end, setEnd] = useState(toLocalInput(initial.end))
+  const habitual = surgeon.habitualSleep ?? { bedHour: 23, wakeHour: 7 }
+  const nights = recentNights(now, habitual.wakeHour)
+
+  const [night, setNight] = useState(nights[0].value)
+  const [bed, setBed] = useState(hourToTime(habitual.bedHour))
+  const [woke, setWoke] = useState(hourToTime(habitual.wakeHour))
   const [quality, setQuality] = useState('0.88')
-  const [source, setSource] = useState('self-report')
-  const [status, setStatus] = useState(null)
+  const [saved, setSaved] = useState(null)
   const [busy, setBusy] = useState(false)
 
-  const startMs = new Date(start).getTime()
-  const endMs = new Date(end).getTime()
-  const valid = Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs
-  const hours = valid ? (endMs - startMs) / HOUR : 0
+  const bedOffset = parseTime(bed)
+  const wokeOffset = parseTime(woke)
+
+  let start = null
+  let end = null
+  if (bedOffset != null && wokeOffset != null) {
+    const morning = Number(night)
+    end = morning + wokeOffset
+    start = morning + bedOffset
+    // Anything at or after the wake time belongs to the evening before.
+    if (start >= end) start -= DAY
+  }
+
+  const hours = start != null ? (end - start) / HOUR : 0
   const tooLong = hours > 16
+  const valid = start != null && !tooLong
+
+  function edit(setter) {
+    return (e) => {
+      setter(e.target.value)
+      setSaved(null)
+    }
+  }
 
   async function submit(e) {
     e.preventDefault()
-    if (!valid || tooLong) return
+    if (!valid) return
     setBusy(true)
     try {
       await onSubmit({
         surgeonId: surgeon.id,
-        start: startMs,
-        end: endMs,
+        start,
+        end,
         quality: Number(quality),
-        source,
+        source: 'self-report',
       })
-      setStatus(`Recorded ${fmtDuration(hours)} of sleep.`)
+      setSaved(fmtDuration(hours))
     } finally {
       setBusy(false)
     }
   }
 
   return (
-    <form onSubmit={submit} className="px-4 py-4">
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="Fell asleep" htmlFor="sleep-start">
-          <Input
-            id="sleep-start"
-            type="datetime-local"
-            value={start}
-            onChange={(e) => {
-              setStart(e.target.value)
-              setStatus(null)
-            }}
-            required
-          />
-        </Field>
-        <Field label="Woke up" htmlFor="sleep-end">
-          <Input
-            id="sleep-end"
-            type="datetime-local"
-            value={end}
-            onChange={(e) => {
-              setEnd(e.target.value)
-              setStatus(null)
-            }}
-            required
-          />
-        </Field>
-        <Field label="Sleep quality" htmlFor="sleep-quality">
-          <Select
-            id="sleep-quality"
-            value={quality}
-            onChange={(e) => setQuality(e.target.value)}
-          >
-            <option value="0.95">Undisturbed</option>
-            <option value="0.88">Good, woke once or twice</option>
-            <option value="0.72">Broken</option>
-            <option value="0.55">Very poor, on-call room</option>
-          </Select>
-        </Field>
-        <Field label="Source" htmlFor="sleep-source">
-          <Select id="sleep-source" value={source} onChange={(e) => setSource(e.target.value)}>
-            <option value="self-report">Self-report</option>
-            <option value="wearable">Wearable</option>
-          </Select>
-        </Field>
-      </div>
+    <form onSubmit={submit} className="grid gap-4 px-4 py-4">
+      <Field label="Which night">
+        <Segmented
+          name="sleep-night"
+          value={night}
+          onChange={(v) => {
+            setNight(v)
+            setSaved(null)
+          }}
+          options={nights}
+        />
+      </Field>
 
-      <div className="mt-3 flex flex-wrap items-center gap-3">
-        <Button type="submit" variant="primary" disabled={!valid || tooLong || busy}>
-          {busy ? 'Saving' : 'Save sleep record'}
-        </Button>
-        <p className="text-[13px] text-ink-2" role="status">
-          {!valid
-            ? 'Wake time must be after the time you fell asleep.'
-            : tooLong
-              ? 'That is over 16 hours. Check the dates.'
-              : (status ?? `${fmtDuration(hours)} in this record.`)}
+      <div>
+        <div className="grid grid-cols-[1fr_auto_1fr] items-end gap-2">
+          <Field label="Asleep" htmlFor="sleep-bed">
+            <Input
+              id="sleep-bed"
+              type="time"
+              value={bed}
+              onChange={edit(setBed)}
+              required
+              className="tnum"
+            />
+          </Field>
+          <ArrowRight size={14} className="mb-2.5 text-ink-3" aria-hidden="true" />
+          <Field label="Awake" htmlFor="sleep-woke">
+            <Input
+              id="sleep-woke"
+              type="time"
+              value={woke}
+              onChange={edit(setWoke)}
+              required
+              className="tnum"
+            />
+          </Field>
+        </div>
+        <p className="mt-2 text-sm text-ink-2" role="status">
+          {start == null ? (
+            'Enter both times.'
+          ) : tooLong ? (
+            <span className="text-risk">Over 16 hours. Check the night and times.</span>
+          ) : saved ? (
+            `Saved ${saved}.`
+          ) : (
+            <>
+              <span className="tnum font-medium text-ink">{fmtDuration(hours)}</span> in
+              bed
+            </>
+          )}
         </p>
       </div>
+
+      <Field label="How was it">
+        <Segmented
+          name="sleep-quality"
+          value={quality}
+          onChange={(v) => {
+            setQuality(v)
+            setSaved(null)
+          }}
+          options={QUALITY}
+          columns={2}
+        />
+      </Field>
+
+      <Button type="submit" variant="primary" disabled={!valid || busy}>
+        {busy ? 'Saving' : 'Save sleep'}
+      </Button>
     </form>
   )
 }
