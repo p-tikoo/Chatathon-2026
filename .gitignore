@@ -8,12 +8,16 @@
 /out/
 next-env.d.ts
 
+# vite
+dist/
+
 # production
 /build
 
 # misc
 .DS_Store
 *.pem
+AGENTS.md
 
 # debug
 npm-debug.log*
@@ -35,3 +39,4 @@ yarn-error.log*
 .idea/
 .vscode/
 *.swp
+.claude/settings.local.json
